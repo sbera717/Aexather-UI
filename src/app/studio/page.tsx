@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { usePlatformStore } from '@/store/platformStore';
 import { EvidenceSource } from '@/types/platform';
-import { formatLatency, formatCost } from '@/lib/utils';
+import { formatLatency, formatCost, humanize, shortId } from '@/lib/utils';
 import { 
   Workflow, 
   Sparkles,
@@ -16,13 +16,16 @@ import {
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 export default function ExecutionStudioPage() {
-  const { traces, selectedTraceId, setSelectedTraceId, selectedNodeId, setSelectedNodeId } = usePlatformStore();
+  const { traces, selectedTraceId, setSelectedTraceId, selectedNodeId, setSelectedNodeId, isTraceLoading } =
+    usePlatformStore();
   const [activeTab, setActiveTab] = useState<'NODE' | 'LEDGER' | 'CLAIMS'>('NODE');
   const [showInputPayload, setShowInputPayload] = useState(false);
   const [showOutputPayload, setShowOutputPayload] = useState(false);
 
   const currentTrace = traces.find(t => t.id === selectedTraceId) || traces[0];
-  const currentNode = currentTrace?.nodes.find(n => n.id === selectedNodeId) || currentTrace?.nodes[0];
+  // The list projection carries no graph, so a trace can be present with its nodes still in flight.
+  const nodes = currentTrace?.nodes ?? [];
+  const currentNode = nodes.find(n => n.id === selectedNodeId) || nodes[0];
 
   if (!currentTrace) {
     return (
@@ -42,7 +45,7 @@ export default function ExecutionStudioPage() {
   };
 
   // Prepare data for the Timeline Chart
-  const timelineData = currentTrace.nodes.map(n => ({
+  const timelineData = nodes.map(n => ({
     name: `Step ${n.stepNumber}`,
     role: n.agentRole,
     latencyMs: n.latencyMs,
@@ -53,27 +56,27 @@ export default function ExecutionStudioPage() {
   return (
     <div className="space-y-10 pb-16 pt-8 px-8 lg:px-12 max-w-7xl mx-auto">
       {/* Studio Top Control Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center space-x-2 text-sm font-bold text-indigo-600 mb-2">
             <Workflow className="w-5 h-5" />
             <span>AGENT REASONING LINEAGE & FLOW</span>
           </div>
-          <h1 className="text-3xl font-light tracking-tight text-slate-900">
+          <h1 className="text-3xl font-light tracking-tight text-slate-900 line-clamp-2">
             {currentTrace.title}
           </h1>
         </div>
 
         {/* Trace Dropdown & Status */}
-        <div className="flex items-center space-x-4 shrink-0 self-start md:self-auto">
+        <div className="flex flex-wrap items-center gap-4 shrink-0">
           <select
             value={currentTrace.id}
             onChange={(e) => setSelectedTraceId(e.target.value)}
-            className="px-6 py-3 rounded-full bg-white border border-slate-200 text-sm text-slate-800 font-bold shadow-sm focus:outline-none focus:border-indigo-500 transition-colors"
+            className="px-6 py-3 rounded-full bg-white border border-slate-200 text-sm text-slate-800 font-bold shadow-sm focus:outline-none focus:border-indigo-500 transition-colors w-full sm:w-[350px] truncate appearance-none"
           >
             {traces.map((t) => (
               <option key={t.id} value={t.id}>
-                {t.id} - {t.title.slice(0, 36)}...
+                {shortId(t.id)} · {t.title.length > 40 ? t.title.substring(0, 40) + '...' : t.title}
               </option>
             ))}
           </select>
@@ -135,14 +138,22 @@ export default function ExecutionStudioPage() {
                 Decision Pipeline DAG
               </span>
               <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 text-slate-600">
-                {currentTrace.nodes.length} Steps
+                {nodes.length} Steps
               </span>
             </div>
           </div>
 
           {/* Connected Flow Node Cards */}
           <div className="space-y-6 relative py-2">
-            {currentTrace.nodes.map((node, index) => {
+            {nodes.length === 0 && (
+              <div className="p-8 rounded-[24px] border border-dashed border-slate-200 text-center text-sm font-medium text-slate-400">
+                {isTraceLoading
+                  ? 'Loading the decision graph…'
+                  : 'This trace recorded no decision nodes.'}
+              </div>
+            )}
+
+            {nodes.map((node, index) => {
               const isSelected = currentNode?.id === node.id;
               const isWarned = node.status === 'WARNED';
               const isFailed = node.status === 'FAILED';
@@ -150,7 +161,7 @@ export default function ExecutionStudioPage() {
               return (
                 <div key={node.id} className="relative">
                   {/* Subtle Vertical Connector */}
-                  {index < currentTrace.nodes.length - 1 && (
+                  {index < nodes.length - 1 && (
                     <div className="absolute left-8 top-16 w-0.5 h-12 bg-indigo-100 -z-0"></div>
                   )}
 
@@ -185,8 +196,8 @@ export default function ExecutionStudioPage() {
                             <h3 className="text-base font-bold text-slate-900 tracking-tight">
                               {node.agentRole}
                             </h3>
-                            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-50 text-slate-500 uppercase tracking-wider">
-                              {node.actionType}
+                            <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-slate-50 text-slate-500 tracking-wide">
+                              {humanize(node.actionType)}
                             </span>
                           </div>
                           <p className="text-sm text-slate-600 font-medium leading-relaxed">
@@ -223,9 +234,9 @@ export default function ExecutionStudioPage() {
         </div>
 
         {/* Right 5 Cols: Step Details & Evidence Ledger Tabs */}
-        <div className="lg:col-span-5 aniwall-card overflow-hidden">
+        <div className="lg:col-span-5 aniwall-card lg:sticky lg:top-8 flex flex-col max-h-[calc(100vh-4rem)] overflow-hidden">
           {/* Tab Pill Headers */}
-          <div className="flex border-b border-slate-100 bg-[#F8FAFD] p-3 text-sm gap-2">
+          <div className="flex border-b border-slate-100 bg-[#F8FAFD] p-3 text-sm gap-2 shrink-0">
             <button
               onClick={() => setActiveTab('NODE')}
               className={`flex-1 py-3 rounded-[20px] font-bold transition-all ${
@@ -240,7 +251,7 @@ export default function ExecutionStudioPage() {
                 activeTab === 'LEDGER' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              Evidence ({currentTrace.evidenceLedger.length})
+              Evidence ({(currentTrace.evidenceLedger ?? []).length})
             </button>
             <button
               onClick={() => setActiveTab('CLAIMS')}
@@ -248,11 +259,11 @@ export default function ExecutionStudioPage() {
                 activeTab === 'CLAIMS' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
               }`}
             >
-              Claims ({currentTrace.claims.length})
+              Claims ({(currentTrace.claims ?? []).length})
             </button>
           </div>
 
-          <div className="p-8 space-y-6">
+          <div className="p-8 space-y-6 overflow-y-auto flex-1">
             {activeTab === 'NODE' && currentNode && (
               <div className="space-y-6">
                 <div className="space-y-2">
@@ -273,6 +284,107 @@ export default function ExecutionStudioPage() {
                     <span className="text-slate-900 font-extrabold text-lg">{formatCost(currentNode.tokenCostUsd)}</span>
                   </div>
                 </div>
+
+                {/*
+                  Decision lineage — the half of a trace that answers "why".
+                  A step that records only what ran cannot settle a post-mortem: the question is
+                  always what else was available at that moment and why it was passed over.
+                */}
+                {currentNode.selectionReason && (
+                  <div className="p-5 rounded-[20px] bg-indigo-50/60 border border-indigo-100 space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-indigo-500 text-[11px] font-extrabold uppercase tracking-wider">
+                        Why this step happened
+                      </span>
+                      {currentNode.trigger && (
+                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-white text-indigo-700 border border-indigo-200 tracking-wide shrink-0">
+                          {humanize(currentNode.trigger)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-slate-700 font-medium leading-relaxed">
+                      {currentNode.selectionReason}
+                    </p>
+                  </div>
+                )}
+
+                {currentNode.candidates && currentNode.candidates.length > 0 && (
+                  <div className="space-y-3">
+                    <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wider block">
+                      Options weighed at this decision
+                    </span>
+                    <div className="space-y-1.5">
+                      {[...currentNode.candidates]
+                        .sort((a, b) => b.score - a.score)
+                        .map((candidate) => (
+                          <div
+                            key={candidate.action}
+                            className={`flex items-center gap-3 rounded-xl border px-4 py-2.5 ${
+                              candidate.selected
+                                ? 'border-indigo-200 bg-indigo-50/70'
+                                : 'border-slate-100 bg-slate-50/60'
+                            }`}
+                          >
+                            <span
+                              className={`text-xs font-bold flex-1 truncate ${
+                                candidate.selected ? 'text-slate-900' : 'text-slate-400'
+                              }`}
+                            >
+                              {candidate.action}
+                            </span>
+
+                            {/* The score bar makes the ranking readable without reading the numbers */}
+                            <div className="h-1.5 w-24 rounded-full bg-slate-200 overflow-hidden shrink-0">
+                              <div
+                                className={`h-full rounded-full ${
+                                  candidate.selected ? 'bg-indigo-500' : 'bg-slate-300'
+                                }`}
+                                style={{ width: `${Math.min(100, candidate.score * 100)}%` }}
+                              />
+                            </div>
+
+                            <span
+                              className={`text-xs font-mono tabular-nums w-10 text-right shrink-0 ${
+                                candidate.selected ? 'text-indigo-700 font-bold' : 'text-slate-400'
+                              }`}
+                            >
+                              {candidate.score.toFixed(2)}
+                            </span>
+                            <span
+                              className={`text-[10px] font-extrabold uppercase w-16 text-right shrink-0 ${
+                                candidate.selected ? 'text-indigo-600' : 'text-slate-300'
+                              }`}
+                            >
+                              {candidate.selected ? 'Dispatched' : 'Passed over'}
+                            </span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {currentNode.budgetAtDecision && (
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
+                      <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block">Tokens</span>
+                      <span className="text-slate-900 font-extrabold text-sm tabular-nums">
+                        {currentNode.budgetAtDecision.tokensUsed.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
+                      <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block">Tool calls</span>
+                      <span className="text-slate-900 font-extrabold text-sm tabular-nums">
+                        {currentNode.budgetAtDecision.toolCalls}
+                      </span>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
+                      <span className="text-slate-400 text-[10px] font-bold uppercase tracking-wider block">Elapsed</span>
+                      <span className="text-slate-900 font-extrabold text-sm tabular-nums">
+                        {formatLatency(currentNode.budgetAtDecision.elapsedMs)}
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Collapsible Input Payload to declutter */}
                 <div className="space-y-2 border border-slate-100 rounded-[20px] overflow-hidden">
@@ -317,7 +429,7 @@ export default function ExecutionStudioPage() {
                 <span className="text-sm font-bold text-slate-800 block mb-2">
                   Grounding Sources in Ledger:
                 </span>
-                {currentTrace.evidenceLedger.map((ev) => (
+                {(currentTrace.evidenceLedger ?? []).map((ev) => (
                   <div
                     key={ev.id}
                     className="p-5 rounded-[24px] bg-[#F8FAFD] border border-[#E9EEF5] space-y-3 shadow-sm hover:shadow-md transition"
@@ -328,6 +440,9 @@ export default function ExecutionStudioPage() {
                           {getSourceIcon(ev.sourceType)}
                         </div>
                         <span className="font-bold text-slate-900">{ev.toolName}</span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-50 text-slate-500 tracking-wide">
+                          {humanize(ev.sourceType)}
+                        </span>
                       </div>
                       <span className="text-[11px] font-extrabold px-3 py-1 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
                         {Math.round(ev.confidence * 100)}% Match
@@ -335,7 +450,7 @@ export default function ExecutionStudioPage() {
                     </div>
                     <p className="text-sm text-slate-600 font-medium leading-relaxed">{ev.summary}</p>
                     <div className="text-[11px] font-bold text-slate-400 flex items-center justify-between pt-3 border-t border-slate-200/60">
-                      <span>ID: {ev.id}</span>
+                      <span className="font-mono" title={ev.id}>{ev.id}</span>
                       <span>{ev.timestamp}</span>
                     </div>
                   </div>
@@ -348,7 +463,7 @@ export default function ExecutionStudioPage() {
                 <span className="text-sm font-bold text-slate-800 block mb-2">
                   Synthesized Semantic Claims:
                 </span>
-                {currentTrace.claims.map((claim) => (
+                {(currentTrace.claims ?? []).map((claim) => (
                   <div
                     key={claim.id}
                     className="p-5 rounded-[24px] bg-white border border-slate-100 space-y-3 shadow-sm hover:shadow-md transition"
@@ -360,7 +475,7 @@ export default function ExecutionStudioPage() {
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           : 'bg-rose-50 text-rose-700 border border-rose-200'
                       }`}>
-                        {claim.status}
+                        {humanize(claim.status)}
                       </span>
                     </div>
                     <p className="text-sm font-bold text-slate-900 leading-snug">{claim.statement}</p>

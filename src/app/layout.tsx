@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans, Playfair_Display } from 'next/font/google';
 import './globals.css';
 import Sidebar from '@/components/layout/Sidebar';
 import CommandPalette from '@/components/layout/CommandPalette';
+import DataSourceGate from '@/components/layout/DataSourceGate';
 import { Toaster } from 'sonner';
 
 const jakarta = Plus_Jakarta_Sans({
@@ -19,7 +20,7 @@ const playfair = Playfair_Display({
 });
 
 export const metadata: Metadata = {
-  title: 'Aether // AI Agent Behavior Engineering Platform',
+  title: 'Aexather // AI Agent Behavior Engineering Platform',
   description: 'Enterprise Behavior CI/CD, Decision Lineage, Counterfactual Failure Attribution, and Invariant Contracts.',
 };
 
@@ -47,6 +48,9 @@ export default function RootLayout({
 
           {/* Global Command Palette */}
           <CommandPalette />
+
+          {/* Loads live data on mount, and says so when it cannot */}
+          <DataSourceGate />
           
           <Toaster position="bottom-right" richColors />
         </div>

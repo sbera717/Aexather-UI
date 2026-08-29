@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
+import { toast } from 'sonner';
 import { usePlatformStore } from '@/store/platformStore';
-import { BehavioralContract } from '@/types/platform';
+import { formatPercent } from '@/lib/utils';
 import { 
   ShieldCheck, 
   Plus, 
@@ -10,6 +11,7 @@ import {
   ToggleLeft, 
   ToggleRight, 
   Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { LineChart, Line, ResponsiveContainer, YAxis } from 'recharts';
 
@@ -27,53 +29,114 @@ const generateHistoricalData = (basePassRate: number) => {
 };
 
 export default function BehavioralContractsPage() {
-  const { contracts, toggleContractStatus, addContract } = usePlatformStore();
+  const { contracts, toggleContractStatus, addContract, testContract, selectedTraceId } =
+    usePlatformStore();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [testingId, setTestingId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Form State
   const [newTitle, setNewTitle] = useState('');
   const [newDescription, setNewDescription] = useState('');
   const [newExpression, setNewExpression] = useState('');
   const [newSeverity, setNewSeverity] = useState<'CRITICAL' | 'HIGH' | 'MEDIUM'>('CRITICAL');
 
+  // Typing animation for demo purposes
+  React.useEffect(() => {
+    if (isModalOpen) {
+      setNewTitle('');
+      setNewDescription('');
+      setNewExpression('');
+      let isCancelled = false;
+
+      const typeText = async (setter: React.Dispatch<React.SetStateAction<string>>, text: string, delay = 20) => {
+        for (let i = 0; i <= text.length; i++) {
+          if (isCancelled) return;
+          setter(text.slice(0, i));
+          await new Promise(r => setTimeout(r, delay));
+        }
+      };
+
+      const runDemo = async () => {
+        await new Promise(r => setTimeout(r, 400));
+        if (isCancelled) return;
+        await typeText(setNewTitle, 'Strict Vector Similarity Threshold Guard');
+        
+        await new Promise(r => setTimeout(r, 300));
+        if (isCancelled) return;
+        await typeText(setNewDescription, 'Reject RAG chunks with similarity score below 0.75');
+        
+        await new Promise(r => setTimeout(r, 300));
+        if (isCancelled) return;
+        await typeText(setNewExpression, 'execution.claims.all(c, c.evidenceRefs.size() >= 1 && c.confidence >= 0.75)', 15);
+      };
+
+      void runDemo();
+
+      return () => {
+        isCancelled = true;
+      };
+    }
+  }, [isModalOpen]);
+
   // Memoize historical data so charts don't re-jitter on re-render
   const historicalDataMap = useMemo(() => {
     const map: Record<string, any[]> = {};
     contracts.forEach(c => {
-      map[c.id] = generateHistoricalData(c.passRatePercent);
+      // A contract with no decided evaluations has no trend either; the sparkline sits flat at
+      // full height rather than drawing a fall from a rate that was never measured.
+      map[c.id] = generateHistoricalData(c.passRatePercent ?? 100);
     });
     return map;
   }, [contracts]);
 
-  const handleCreateContract = (e: React.FormEvent) => {
+  const handleCreateContract = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle || !newExpression) return;
 
-    const created: BehavioralContract = {
-      id: `CONTRACT-0${contracts.length + 1}`,
-      title: newTitle,
-      description: newDescription || 'Enforced deterministic invariant rule.',
-      expression: newExpression,
-      severity: newSeverity,
-      status: 'ACTIVE',
-      passRatePercent: 100.0,
-      evaluationsCount: 0
-    };
+    setIsSaving(true);
+    try {
+      // The backend compiles the CEL before it writes, so an expression that will never yield a
+      // verdict is refused here rather than discovered later as a wave of indeterminate results.
+      const created = await addContract({
+        title: newTitle,
+        description: newDescription || 'Enforced deterministic invariant rule.',
+        expression: newExpression,
+        severity: newSeverity,
+      });
 
-    addContract(created);
-    setNewTitle('');
-    setNewDescription('');
-    setNewExpression('');
-    setIsModalOpen(false);
+      toast.success(`${created.id} saved as ${created.status}. Activate it to start judging traffic.`);
+      setNewTitle('');
+      setNewDescription('');
+      setNewExpression('');
+      setIsModalOpen(false);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save the contract.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleRunSimulation = (expression: string) => {
-    setTestResult('Evaluating CEL invariant rule against 1,543 historical agent execution traces...');
-    setTimeout(() => {
-      setTestResult('Rule Verification Passed: 1,539 / 1,543 runs compliant (99.74% Pass Rate). 0 False Positives.');
-    }, 600);
+  const handleToggle = async (contractId: string) => {
+    try {
+      await toggleContractStatus(contractId);
+    } catch (error) {
+      // Activation compiles the expression server-side and can legitimately fail.
+      toast.error(error instanceof Error ? error.message : 'Could not change the contract status.');
+    }
+  };
+
+  const handleRunSimulation = async (contractId: string) => {
+    setTestingId(contractId);
+    setTestResult(null);
+    try {
+      setTestResult(await testContract(contractId, selectedTraceId || undefined));
+    } catch (error) {
+      setTestResult(error instanceof Error ? error.message : 'The rule could not be evaluated.');
+    } finally {
+      setTestingId(null);
+    }
   };
 
   return (
@@ -138,7 +201,7 @@ export default function BehavioralContractsPage() {
                 </div>
 
                 <button
-                  onClick={() => toggleContractStatus(contract.id)}
+                  onClick={() => void handleToggle(contract.id)}
                   className="text-slate-400 hover:text-slate-700 transition transform hover:scale-110 shrink-0"
                   title={isActive ? 'Deactivate' : 'Activate'}
                 >
@@ -164,8 +227,18 @@ export default function BehavioralContractsPage() {
                 <div className="space-y-1">
                   <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">Pass Rate Trend</span>
                   <div className="flex items-baseline space-x-2">
-                    <span className="text-2xl font-bold text-emerald-600">{contract.passRatePercent}%</span>
-                    <span className="text-xs text-slate-500 font-medium">{contract.evaluationsCount} Evals</span>
+                    <span
+                      className={`text-2xl font-bold ${
+                        contract.passRatePercent == null ? 'text-slate-400' : 'text-emerald-600'
+                      }`}
+                    >
+                      {formatPercent(contract.passRatePercent)}
+                    </span>
+                    <span className="text-xs text-slate-500 font-medium">
+                      {contract.passRatePercent == null
+                        ? 'Not yet evaluated'
+                        : `${contract.evaluationsCount} Evals`}
+                    </span>
                   </div>
                 </div>
 
@@ -187,11 +260,16 @@ export default function BehavioralContractsPage() {
                 </div>
 
                 <button
-                  onClick={() => handleRunSimulation(contract.expression)}
-                  className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-indigo-600 font-bold transition text-xs"
+                  onClick={() => void handleRunSimulation(contract.id)}
+                  disabled={testingId === contract.id}
+                  className="flex items-center space-x-1.5 px-4 py-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-indigo-600 font-bold transition text-xs disabled:opacity-50"
                 >
-                  <Play className="w-3.5 h-3.5" />
-                  <span>Test Rule</span>
+                  {testingId === contract.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5" />
+                  )}
+                  <span>{testingId === contract.id ? 'Evaluating…' : 'Test Rule'}</span>
                 </button>
               </div>
             </div>
@@ -199,68 +277,83 @@ export default function BehavioralContractsPage() {
         })}
       </div>
 
-      {/* Test Result Toast */}
-      {testResult && (
-        <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 p-4 rounded-2xl bg-indigo-900 border border-indigo-700 text-sm font-bold text-white flex items-center justify-between shadow-2xl z-50 min-w-[500px] animate-in slide-in-from-bottom-5">
+      {/* Rule evaluation strip — pending while the expression runs, verdict once it lands */}
+      {(testingId || testResult) && (
+        <div className="fixed bottom-10 left-1/2 transform -translate-x-1/2 p-4 rounded-2xl bg-indigo-900 border border-indigo-700 text-sm font-bold text-white flex items-center justify-between gap-6 shadow-2xl z-50 min-w-[500px] max-w-[720px] animate-in slide-in-from-bottom-5">
           <div className="flex items-center space-x-3">
-            <Sparkles className="w-5 h-5 text-indigo-400 animate-pulse" />
-            <span>{testResult}</span>
+            {testingId ? (
+              <Loader2 className="w-5 h-5 text-indigo-300 animate-spin shrink-0" />
+            ) : (
+              <Sparkles className="w-5 h-5 text-indigo-400 shrink-0" />
+            )}
+            <span className="leading-relaxed">
+              {testingId
+                ? `Compiling ${testingId} and evaluating it against the selected trace…`
+                : testResult}
+            </span>
           </div>
-          <button onClick={() => setTestResult(null)} className="text-indigo-400 hover:text-white transition">✕</button>
+          {!testingId && (
+            <button
+              onClick={() => setTestResult(null)}
+              className="text-indigo-400 hover:text-white transition shrink-0"
+            >
+              ✕
+            </button>
+          )}
         </div>
       )}
 
       {/* New Contract Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-xl rounded-[32px] bg-white border border-slate-200 p-8 space-y-6 shadow-2xl animate-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
-              <h2 className="text-xl font-bold text-slate-900 tracking-tight">Add Behavioral Invariant Rule</h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700 p-2 bg-slate-50 rounded-full">✕</button>
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 overflow-y-auto p-4 sm:p-6 md:p-12 flex items-start justify-center">
+          <div className="w-full max-w-xl mt-12 mb-12 rounded-xl bg-white p-0 shadow-2xl animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6">
+              <h2 className="text-xl font-medium text-slate-900">Add Behavioral Invariant Rule</h2>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition">✕</button>
             </div>
 
-            <form onSubmit={handleCreateContract} className="space-y-5 text-sm">
-              <div className="space-y-2">
-                <label className="text-slate-700 font-bold">Rule Title</label>
+            <form id="contract-form" onSubmit={handleCreateContract} className="px-8 py-6 space-y-6">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-800">Rule Title</label>
                 <input
                   type="text"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   placeholder="e.g., Strict Vector Similarity Threshold Guard"
-                  className="w-full p-4 rounded-2xl aniwall-input font-medium"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
                   required
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-slate-700 font-bold">Description</label>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-800">Description</label>
                 <input
                   type="text"
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
                   placeholder="e.g., Reject RAG chunks with similarity score below 0.75"
-                  className="w-full p-4 rounded-2xl aniwall-input font-medium"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-slate-700 font-bold">CEL / Invariant Expression</label>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-800">CEL / Invariant Expression</label>
                 <textarea
                   value={newExpression}
                   onChange={(e) => setNewExpression(e.target.value)}
                   placeholder="execution.claims.all(c, c.evidenceRefs.size() >= 1 && c.confidence >= 0.75)"
                   rows={3}
-                  className="w-full p-4 rounded-2xl aniwall-input font-mono text-indigo-700 text-sm"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 font-mono text-sm text-indigo-700 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition"
                   required
                 />
               </div>
 
-              <div className="space-y-2">
-                <label className="text-slate-700 font-bold">Severity Tier</label>
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-800">Severity Tier</label>
                 <select
                   value={newSeverity}
                   onChange={(e) => setNewSeverity(e.target.value as any)}
-                  className="w-full p-4 rounded-2xl aniwall-input font-bold"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-slate-200 text-sm text-slate-900 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition bg-white"
                 >
                   <option value="CRITICAL">CRITICAL (Rejects Execution on Breach)</option>
                   <option value="HIGH">HIGH (Flags Warning & Degrades Confidence)</option>
@@ -268,19 +361,20 @@ export default function BehavioralContractsPage() {
                 </select>
               </div>
 
-              <div className="flex items-center justify-end space-x-3 pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-center space-x-4 pt-6 pb-2">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-6 py-3 rounded-full text-slate-500 hover:text-slate-900 font-bold hover:bg-slate-50 transition"
+                  className="px-8 py-2.5 rounded-lg border border-indigo-500 text-indigo-600 text-sm font-medium hover:bg-indigo-50 transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-3 rounded-full font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition"
+                  disabled={isSaving}
+                  className="px-8 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition disabled:opacity-60"
                 >
-                  Save Contract
+                  {isSaving ? 'Compiling…' : 'Save Contract'}
                 </button>
               </div>
             </form>

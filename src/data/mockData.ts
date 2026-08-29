@@ -9,7 +9,7 @@ import {
 export const MOCK_TRACES: ExecutionTrace[] = [
   {
     id: 'exec_agent_9421',
-    agentVersion: 'Aether-Agent-v2.3',
+    agentVersion: 'Aexather-Agent-v2.3',
     timestamp: '2026-08-23 18:30:12',
     title: 'Multi-Step Tool Orchestration: Citation Grounding Hallucination Breach',
     inputPrompt: 'Synthesize user subscription telemetry, compute churn probability, and query refund eligibility rules.',
@@ -140,7 +140,7 @@ export const MOCK_TRACES: ExecutionTrace[] = [
   },
   {
     id: 'exec_agent_9422',
-    agentVersion: 'Aether-Agent-v2.3',
+    agentVersion: 'Aexather-Agent-v2.3',
     timestamp: '2026-08-23 17:45:00',
     title: 'Autonomous SQL Agent: Schema Inference & Read-Only Invariant Enforcement',
     inputPrompt: 'Query quarterly customer retention metrics from analytics warehouse without modifying state.',
@@ -227,7 +227,7 @@ export const MOCK_TRACES: ExecutionTrace[] = [
   },
   {
     id: 'exec_agent_9423',
-    agentVersion: 'Aether-Agent-v2.3',
+    agentVersion: 'Aexather-Agent-v2.3',
     timestamp: '2026-08-23 16:10:00',
     title: 'Multi-Agent Consensus: Real-Time Web Search & Grounded Synthesis',
     inputPrompt: 'Identify latest release changes for Next.js 15.5 and verify breaking changes.',
@@ -427,7 +427,7 @@ export const MOCK_REGRESSION_TESTS: RegressionTestCase[] = [
 
 export const MOCK_CANDIDATES: CandidateVersion[] = [
   {
-    version: 'Aether Agent v2.4 (Tree-of-Thoughts + CEL Guardrails)',
+    version: 'Aexather Agent v2.4 (Tree-of-Thoughts + CEL Guardrails)',
     createdAt: '2026-08-23 15:30:00',
     status: 'CANDIDATE',
     accuracyPercent: 99.4,
@@ -450,7 +450,7 @@ export const MOCK_CANDIDATES: CandidateVersion[] = [
     }
   },
   {
-    version: 'Aether Agent v2.3 (Baseline Chain-of-Thought)',
+    version: 'Aexather Agent v2.3 (Baseline Chain-of-Thought)',
     createdAt: '2026-08-15 10:00:00',
     status: 'PRODUCTION',
     accuracyPercent: 94.2,

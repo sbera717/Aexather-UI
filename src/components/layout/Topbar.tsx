@@ -28,7 +28,7 @@ export default function Topbar() {
       <div className="flex items-center space-x-2 shrink-0">
         <Sparkles className="w-6 h-6 text-indigo-600" />
         <span className="font-bold text-xl tracking-tight text-[#0F1115]">
-          Aether<span className="font-light">Platform</span>
+          Aexather<span className="font-light">Platform</span>
         </span>
       </div>
 
